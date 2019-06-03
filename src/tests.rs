@@ -177,12 +177,19 @@ fn encode_f64_ne_int() {
 
 #[test]
 fn write_f64() {
-    let tests = &[(3.0f64, "3"), (46.0f64, "46"), (-254.0f64, "-254")];
+    let tests = &[
+        (3.0f64, "3"),
+        (46.0f64, "46"),
+        (-254.0f64, "-254"),
+        (1234567f64, "1234567"),
+    ];
     assert_encode_ok(tests);
 }
 
 // TODO - Radu M
-// correctly escape strings
+// port string escape tests from the Go implementation
+// https://github.com/docker/go/blob/master/canonical/json/encode_test.go#L489-L525
+
 #[test]
 fn write_str() {
     let tests = &[

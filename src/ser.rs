@@ -173,7 +173,7 @@ where
     // Serialize a char as a single-character string. Other formats may
     // represent this differently.
     fn serialize_char(self, v: char) -> Result<()> {
-        //self.serialize_str(&v.to_string())
+        escape_char(&mut self.writer, v)?;
         Ok(())
     }
 
@@ -181,9 +181,7 @@ where
     // get the idea. For example it would emit invalid JSON if the input string
     // contains a '"' character.
     fn serialize_str(self, v: &str) -> Result<()> {
-        //self.output += "\"";
-        //self.output += v;
-        //self.output += "\"";
+        escape_str(&mut self.writer, v)?;
         Ok(())
     }
 
@@ -577,3 +575,70 @@ where
         Ok(())
     }
 }
+
+fn escape_char<W: io::Write>(writer: &mut W, v: char) -> Result<()> {
+    let mut s = String::new();
+    s.push(v);
+    escape_str(writer, &s)
+}
+
+fn escape_str<W: io::Write>(writer: &mut W, v: &str) -> Result<()> {
+    writer.write_all(b"\"")?;
+
+    let bytes = v.as_bytes();
+    let mut start = 0;
+
+    for (i, &byte) in bytes.iter().enumerate() {
+        let escape = ESCAPE[byte as usize];
+        if escape == 0 {
+            continue;
+        }
+
+        if start < i {
+            writer.write_all(&bytes[start..i])?;
+        }
+
+        writer.write_all(&[b'\\', escape])?;
+
+        start = i + 1;
+    }
+
+    if start != bytes.len() {
+        writer.write_all(&bytes[start..])?;
+    }
+
+    writer.write_all(b"\"")?;
+
+    Ok(())
+}
+
+// TODO - Radu M
+// ensure the escaped sequences are correct
+
+const QU: u8 = b'"'; // \x22
+const BS: u8 = b'\\'; // \x5C
+
+// Lookup table of escape sequences. A value of b'x' at index i means that byte
+// i is escaped as "\x" in JSON. A value of 0 means that byte i is not escaped.
+//
+// Adapted from https://github.com/zmanian/canonical_json
+// (which was adapted from a repo that no longer exists)
+static ESCAPE: [u8; 256] = [
+    //  1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 1
+    0, 0, QU, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 2
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 3
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 4
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, BS, 0, 0, 0, // 5
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 6
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 7
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 8
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 9
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // A
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // B
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // C
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // D
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // F
+];
