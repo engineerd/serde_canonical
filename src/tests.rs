@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ser::to_string;
 use serde_derive::*;
 use serde_json::*;
-use std::{i16, i32, i64, i8, u16, u32, u64, u8};
+use std::{f32, i16, i32, i64, i8, u16, u32, u64, u8};
 
 use std::collections::btree_map::BTreeMap;
 
@@ -27,7 +27,7 @@ where
     T: serde::ser::Serialize,
 {
     match to_string(&val).unwrap_err() {
-        Error::Syntax(_, _, _) => (),
+        Error::Custom(_) => (),
         _ => panic!("this should error out"),
     }
 }
@@ -136,8 +136,6 @@ fn write_u64() {
     assert_encode_ok(tests);
 }
 
-// TODO - Radu M
-// error out on nonfinit float values
 #[test]
 fn encode_nonfinite_float_yields_err() {
     let v = std::f64::NAN;
@@ -151,6 +149,36 @@ fn encode_nonfinite_float_yields_err() {
 
     let v = std::f32::INFINITY;
     assert_encode_err(&v);
+}
+
+#[test]
+fn encode_f32_ne_int() {
+    let v = 3.1f32;
+    assert_encode_err(&v);
+
+    let v = -1.3f32;
+    assert_encode_err(&v);
+}
+
+#[test]
+fn write_f32() {
+    let tests = &[(3.0f32, "3"), (46.0f32, "46"), (-254.0f32, "-254")];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn encode_f64_ne_int() {
+    let v = 3.1f64;
+    assert_encode_err(&v);
+
+    let v = -1.3f64;
+    assert_encode_err(&v);
+}
+
+#[test]
+fn write_f64() {
+    let tests = &[(3.0f64, "3"), (46.0f64, "46"), (-254.0f64, "-254")];
+    assert_encode_ok(tests);
 }
 
 // TODO - Radu M

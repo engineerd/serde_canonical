@@ -1,7 +1,7 @@
 use super::error::{Error, Result};
 use itoa;
 use serde::{ser, Serialize};
-use std::io;
+use std::{i64, io, num::FpCategory};
 
 pub struct Serializer<W>
 where
@@ -117,12 +117,56 @@ where
     }
 
     fn serialize_f32(self, v: f32) -> Result<()> {
-        //self.serialize_f64(f64::from(v))
+        match v.classify() {
+            FpCategory::Nan | FpCategory::Infinite => {
+                return Err(Error::Custom(String::from(format!(
+                    "value not allowed in cannonical JSON: {}",
+                    v
+                ))))
+            }
+            _ => {
+                if v.fract() != 0.0 {
+                    return Err(Error::Custom(String::from(format!(
+                        "value not allowed in cannonical JSON: {}",
+                        v
+                    ))));
+                }
+                if v != (v as i64) as f32 {
+                    return Err(Error::Custom(String::from(format!(
+                        "value not allowed in cannonical JSON: {}",
+                        v
+                    ))));
+                }
+                itoa::write(&mut self.writer, v as i64).map_err(Error::Io)?;
+            }
+        }
         Ok(())
     }
 
     fn serialize_f64(self, v: f64) -> Result<()> {
-        //self.output += &v.to_string();
+        match v.classify() {
+            FpCategory::Nan | FpCategory::Infinite => {
+                return Err(Error::Custom(String::from(format!(
+                    "value not allowed in cannonical JSON: {}",
+                    v
+                ))))
+            }
+            _ => {
+                if v.fract() != 0.0 {
+                    return Err(Error::Custom(String::from(format!(
+                        "value not allowed in cannonical JSON: {}",
+                        v
+                    ))));
+                }
+                if v != (v as i64) as f64 {
+                    return Err(Error::Custom(String::from(format!(
+                        "value not allowed in cannonical JSON: {}",
+                        v
+                    ))));
+                }
+                itoa::write(&mut self.writer, v as i64).map_err(Error::Io)?;
+            }
+        }
         Ok(())
     }
 
