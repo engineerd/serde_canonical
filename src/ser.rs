@@ -56,7 +56,7 @@ where
     type Error = Error;
 
     type SerializeSeq = Compound<'a, W>;
-    type SerializeTuple = Self;
+    type SerializeTuple = Compound<'a, W>;
     type SerializeTupleStruct = Self;
     type SerializeTupleVariant = Self;
     type SerializeMap = Self;
@@ -170,24 +170,16 @@ where
         Ok(())
     }
 
-    // Serialize a char as a single-character string. Other formats may
-    // represent this differently.
     fn serialize_char(self, v: char) -> Result<()> {
         escape_char(&mut self.writer, v)?;
         Ok(())
     }
 
-    // This only works for strings that don't require escape sequences but you
-    // get the idea. For example it would emit invalid JSON if the input string
-    // contains a '"' character.
     fn serialize_str(self, v: &str) -> Result<()> {
         escape_str(&mut self.writer, v)?;
         Ok(())
     }
 
-    // Serialize a byte array as an array of bytes. Could also use a base64
-    // string here. Binary formats will typically represent byte arrays more
-    // compactly.
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         use serde::ser::SerializeSeq;
         let mut seq = self.serialize_seq(Some(v.len()))?;
@@ -197,17 +189,11 @@ where
         seq.end()
     }
 
-    // An absent optional is represented as the JSON `null`.
     fn serialize_none(self) -> Result<()> {
         self.serialize_unit()?;
         Ok(())
     }
 
-    // A present optional is represented as just the contained value. Note that
-    // this is a lossy representation. For example the values `Some(())` and
-    // `None` both serialize as just `null`. Unfortunately this is typically
-    // what people expect when working with JSON. Other formats are encouraged
-    // to behave more intelligently if possible.
     fn serialize_some<T>(self, value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
@@ -215,37 +201,26 @@ where
         value.serialize(self)
     }
 
-    // In Serde, unit means an anonymous value containing no data. Map this to
-    // JSON as `null`.
     fn serialize_unit(self) -> Result<()> {
         self.writer.write_all(b"null")?;
         Ok(())
     }
 
-    // Unit struct means a named value containing no data. Again, since there is
-    // no data, map this to JSON as `null`. There is no need to serialize the
-    // name in most formats.
     fn serialize_unit_struct(self, _name: &'static str) -> Result<()> {
-        //self.serialize_unit()
+        self.serialize_unit()?;
         Ok(())
     }
 
-    // When serializing a unit variant (or any other kind of variant), formats
-    // can choose whether to keep track of it by index or by name. Binary
-    // formats typically use the index of the variant and human-readable formats
-    // typically use the name.
     fn serialize_unit_variant(
         self,
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
     ) -> Result<()> {
-        //self.serialize_str(variant)
+        self.serialize_str(variant)?;
         Ok(())
     }
 
-    // As is done here, serializers are encouraged to treat newtype structs as
-    // insignificant wrappers around the data they contain.
     fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
@@ -253,11 +228,6 @@ where
         value.serialize(self)
     }
 
-    // Note that newtype variant (and all of the other variant serialization
-    // methods) refer exclusively to the "externally tagged" enum
-    // representation.
-    //
-    // Serialize this to JSON in externally tagged form as `{ NAME: VALUE }`.
     fn serialize_newtype_variant<T>(
         self,
         _name: &'static str,
@@ -268,24 +238,15 @@ where
     where
         T: ?Sized + Serialize,
     {
-        // self.output += "{";
-        // variant.serialize(&mut *self)?;
-        // self.output += ":";
-        // value.serialize(&mut *self)?;
-        // self.output += "}";
+        self.writer.write_all(b"{")?;
+        self.serialize_str(variant)?;
+        self.writer.write_all(b":")?;
+        value.serialize(&mut *self)?;
+        self.writer.write_all(b"}")?;
+
         Ok(())
     }
 
-    // Now we get to the serialization of compound types.
-    //
-    // The start of the sequence, each value, and the end are three separate
-    // method calls. This one is responsible only for serializing the start,
-    // which in JSON is `[`.
-    //
-    // The length of the sequence may or may not be known ahead of time. This
-    // doesn't make a difference in JSON because the length is not represented
-    // explicitly in the serialized form. Some serializers may only be able to
-    // support sequences for which the length is known up front.
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
         if len == Some(0) {
             self.writer.write_all(b"[]")?;
@@ -307,8 +268,7 @@ where
     // means that the corresponding `Deserialize implementation will know the
     // length without needing to look at the serialized data.
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple> {
-        // self.serialize_seq(Some(len))
-        Ok(self)
+        self.serialize_seq(Some(len))
     }
 
     // Tuple structs look just like sequences in JSON.
@@ -317,7 +277,7 @@ where
         _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct> {
-        // self.serialize_seq(Some(len))
+        self.serialize_seq(Some(len))?;
         Ok(self)
     }
 
@@ -431,29 +391,25 @@ where
     }
 }
 
-// Same thing but for tuples.
-impl<'a, W> ser::SerializeTuple for &'a mut Serializer<W>
+impl<'a, W> ser::SerializeTuple for Compound<'a, W>
 where
     W: io::Write,
 {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_element<T>(&mut self, value: &T) -> Result<()>
+    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize,
+        T: Serialize,
     {
-        // if !self.output.ends_with('[') {
-        //     self.output += ",";
-        // }
-        value.serialize(&mut **self)
+        ser::SerializeSeq::serialize_element(self, value)
     }
 
     fn end(self) -> Result<()> {
-        // self.output += "]";
-        Ok(())
+        ser::SerializeSeq::end(self)
     }
 }
+
 
 // Same thing but for tuple structs.
 impl<'a, W> ser::SerializeTupleStruct for &'a mut Serializer<W>
