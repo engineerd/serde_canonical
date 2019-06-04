@@ -199,7 +199,7 @@ where
 
     // An absent optional is represented as the JSON `null`.
     fn serialize_none(self) -> Result<()> {
-        //self.serialize_unit()
+        self.serialize_unit()?;
         Ok(())
     }
 
@@ -218,7 +218,7 @@ where
     // In Serde, unit means an anonymous value containing no data. Map this to
     // JSON as `null`.
     fn serialize_unit(self) -> Result<()> {
-        //self.output += "null";
+        self.writer.write_all(b"null")?;
         Ok(())
     }
 
