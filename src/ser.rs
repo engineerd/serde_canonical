@@ -59,7 +59,7 @@ where
     type SerializeTuple = Compound<'a, W>;
     type SerializeTupleStruct = Compound<'a, W>;
     type SerializeTupleVariant = Compound<'a, W>;
-    type SerializeMap = Self;
+    type SerializeMap = Compound<'a, W>;
     type SerializeStruct = Self;
     type SerializeStructVariant = Self;
 
@@ -287,10 +287,20 @@ where
         self.serialize_seq(Some(len))
     }
 
-    // Maps are represented in JSON as `{ K: V, K: V, ... }`.
-    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
-        // self.output += "{";
-        Ok(self)
+    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
+        if len == Some(0) {
+            self.writer.write_all(b"{}")?;
+            Ok(Compound::Map {
+                ser: self,
+                state: State::Empty,
+            })
+        } else {
+            self.writer.write_all(b"{")?;
+            Ok(Compound::Map {
+                ser: self,
+                state: State::First,
+            })
+        }
     }
 
     // Structs look just like maps in JSON. In particular, JSON requires that we
@@ -453,53 +463,60 @@ where
     }
 }
 
-// Some `Serialize` types are not able to hold a key and value in memory at the
-// same time so `SerializeMap` implementations are required to support
-// `serialize_key` and `serialize_value` individually.
-//
-// There is a third optional method on the `SerializeMap` trait. The
-// `serialize_entry` method allows serializers to optimize for the case where
-// key and value are both available simultaneously. In JSON it doesn't make a
-// difference so the default behavior for `serialize_entry` is fine.
-impl<'a, W> ser::SerializeMap for &'a mut Serializer<W>
+impl<'a, W> ser::SerializeMap for Compound<'a, W>
 where
     W: io::Write,
 {
     type Ok = ();
     type Error = Error;
 
-    // The Serde data model allows map keys to be any serializable type. JSON
-    // only allows string keys so the implementation below will produce invalid
-    // JSON if the key serializes as something other than a string.
-    //
-    // A real JSON serializer would need to validate that map keys are strings.
-    // This can be done by using a different Serializer to serialize the key
-    // (instead of `&mut **self`) and having that other serializer only
-    // implement `serialize_str` and return an error on any other data type.
-    fn serialize_key<T>(&mut self, key: &T) -> Result<()>
+    fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<()>
     where
-        T: ?Sized + Serialize,
+        T: Serialize,
     {
-        // if !self.output.ends_with('{') {
-        //     self.output += ",";
-        // }
-        key.serialize(&mut **self)
+        match *self {
+            Compound::Map {
+                ref mut ser,
+                ref mut state,
+            } => {
+                // begin object key
+                // if the value is not thre first, write a ","
+                match *state {
+                    State::Rest => ser.writer.write_all(b",")?,
+                    _ => (),
+                }
+                *state = State::Rest;
+                key.serialize(&mut **ser)?;
+
+                Ok(())
+            }
+        }
     }
 
-    // It doesn't make a difference whether the colon is printed at the end of
-    // `serialize_key` or at the beginning of `serialize_value`. In this case
-    // the code is a bit simpler having it here.
-    fn serialize_value<T>(&mut self, value: &T) -> Result<()>
+    fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize,
+        T: Serialize,
     {
-        // self.output += ":";
-        value.serialize(&mut **self)
+        match *self {
+            Compound::Map { ref mut ser, .. } => {
+                ser.writer.write_all(b":")?;
+                value.serialize(&mut **ser)?;
+
+                Ok(())
+            }
+        }
     }
 
     fn end(self) -> Result<()> {
-        // self.output += "}";
-        Ok(())
+        match self {
+            Compound::Map { ser, state } => {
+                match state {
+                    State::Empty => {}
+                    _ => ser.writer.write_all(b"}")?,
+                }
+                Ok(())
+            }
+        }
     }
 }
 
