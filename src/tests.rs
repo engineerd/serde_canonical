@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::ser::to_string;
 use serde_derive::*;
-use serde_json::*;
+use serde_json::Value;
 use std::{f32, i16, i32, i64, i8, u16, u32, u64, u8};
 
 use std::collections::btree_map::BTreeMap;
@@ -206,6 +206,15 @@ fn write_str() {
 }
 
 #[test]
+fn write_bytes() {
+    let buf: Vec<i32> = vec![];
+    assert_encode(&buf, "[]");
+
+    let buf = vec![1, 2, 3];
+    assert_encode(&buf, "[1,2,3]");
+}
+
+#[test]
 fn write_list() {
     assert_encode_ok(&[
         (vec![], "[]"),
@@ -406,7 +415,7 @@ fn write_unsorted_struct() {
 }
 
 #[test]
-fn test_struct() {
+fn write_struct() {
     #[derive(Serialize)]
     struct Test {
         int: u32,
@@ -422,7 +431,7 @@ fn test_struct() {
 }
 
 #[test]
-fn test_enum() {
+fn write_enum_derive() {
     #[derive(Serialize)]
     enum E {
         Unit,

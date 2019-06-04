@@ -55,7 +55,7 @@ where
 
     type Error = Error;
 
-    type SerializeSeq = Self;
+    type SerializeSeq = Compound<'a, W>;
     type SerializeTuple = Self;
     type SerializeTupleStruct = Self;
     type SerializeTupleVariant = Self;
@@ -189,13 +189,12 @@ where
     // string here. Binary formats will typically represent byte arrays more
     // compactly.
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
-        //use serde::ser::SerializeSeq;
-        //let mut seq = self.serialize_seq(Some(v.len()))?;
-        //for byte in v {
-        //    seq.serialize_element(byte)?;
-        //}
-        //seq.end()
-        Ok(())
+        use serde::ser::SerializeSeq;
+        let mut seq = self.serialize_seq(Some(v.len()))?;
+        for byte in v {
+            seq.serialize_element(byte)?;
+        }
+        seq.end()
     }
 
     // An absent optional is represented as the JSON `null`.
@@ -287,9 +286,20 @@ where
     // doesn't make a difference in JSON because the length is not represented
     // explicitly in the serialized form. Some serializers may only be able to
     // support sequences for which the length is known up front.
-    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
-        // self.output += "[";
-        Ok(self)
+    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
+        if len == Some(0) {
+            self.writer.write_all(b"[]")?;
+            Ok(Compound::Map {
+                ser: self,
+                state: State::Empty,
+            })
+        } else {
+            self.writer.write_all(b"[")?;
+            Ok(Compound::Map {
+                ser: self,
+                state: State::First,
+            })
+        }
     }
 
     // Tuples look just like sequences in JSON. Some formats may be able to
@@ -358,37 +368,66 @@ where
     }
 }
 
-// The following 7 impls deal with the serialization of compound types like
-// sequences and maps. Serialization of such types is begun by a Serializer
-// method and followed by zero or more calls to serialize individual elements of
-// the compound type and one call to end the compound type.
-//
-// This impl is SerializeSeq so these methods are called after `serialize_seq`
-// is called on the Serializer.
-impl<'a, W> ser::SerializeSeq for &'a mut Serializer<W>
+#[derive(Eq, PartialEq)]
+#[doc(hidden)]
+pub enum State {
+    Empty,
+    First,
+    Rest,
+}
+
+#[doc(hidden)]
+pub enum Compound<'a, W: 'a>
 where
     W: io::Write,
 {
-    // Must match the `Ok` type of the serializer.
+    Map {
+        ser: &'a mut Serializer<W>,
+        state: State,
+    },
+}
+
+impl<'a, W> ser::SerializeSeq for Compound<'a, W>
+where
+    W: io::Write,
+{
     type Ok = ();
-    // Must match the `Error` type of the serializer.
     type Error = Error;
 
-    // Serialize a single element of the sequence.
-    fn serialize_element<T>(&mut self, value: &T) -> Result<()>
+    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize,
+        T: Serialize,
     {
-        // if !self.output.ends_with('[') {
-        //     self.output += ",";
-        // }
-        value.serialize(&mut **self)
+        match *self {
+            Compound::Map {
+                ref mut ser,
+                ref mut state,
+            } => {
+                // begin array value
+                // if the value is not thre first, write a ","
+                match *state {
+                    State::Rest => ser.writer.write_all(b",")?,
+                    _ => (),
+                }
+                *state = State::Rest;
+                value.serialize(&mut **ser)?;
+
+                Ok(())
+            }
+        }
     }
 
-    // Close the sequence.
     fn end(self) -> Result<()> {
-        //self.output += "]";
-        Ok(())
+        match self {
+            Compound::Map { ser, state } => {
+                match state {
+                    State::Empty => {}
+                    _ => ser.writer.write_all(b"]")?,
+                }
+
+                Ok(())
+            }
+        }
     }
 }
 
