@@ -57,8 +57,8 @@ where
 
     type SerializeSeq = Compound<'a, W>;
     type SerializeTuple = Compound<'a, W>;
-    type SerializeTupleStruct = Self;
-    type SerializeTupleVariant = Self;
+    type SerializeTupleStruct = Compound<'a, W>;
+    type SerializeTupleVariant = Compound<'a, W>;
     type SerializeMap = Self;
     type SerializeStruct = Self;
     type SerializeStructVariant = Self;
@@ -95,7 +95,6 @@ where
 
     // TODO - Radu M
     // check the serde_if_integer128! macro for 128-bit integers
-
     fn serialize_u8(self, v: u8) -> Result<()> {
         itoa::write(&mut self.writer, v).map_err(Error::Io)?;
         Ok(())
@@ -263,37 +262,29 @@ where
         }
     }
 
-    // Tuples look just like sequences in JSON. Some formats may be able to
-    // represent tuples more efficiently by omitting the length, since tuple
-    // means that the corresponding `Deserialize implementation will know the
-    // length without needing to look at the serialized data.
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple> {
         self.serialize_seq(Some(len))
     }
 
-    // Tuple structs look just like sequences in JSON.
     fn serialize_tuple_struct(
         self,
         _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct> {
-        self.serialize_seq(Some(len))?;
-        Ok(self)
+        self.serialize_seq(Some(len))
     }
 
-    // Tuple variants are represented in JSON as `{ NAME: [DATA...] }`. Again
-    // this method is only responsible for the externally tagged representation.
     fn serialize_tuple_variant(
         self,
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-        _len: usize,
+        len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        // self.output += "{";
-        // variant.serialize(&mut *self)?;
-        // self.output += ":[";
-        Ok(self)
+        self.writer.write_all(b"{")?;
+        self.serialize_str(variant)?;
+        self.writer.write_all(b":")?;
+        self.serialize_seq(Some(len))
     }
 
     // Maps are represented in JSON as `{ K: V, K: V, ... }`.
@@ -410,60 +401,55 @@ where
     }
 }
 
-
-// Same thing but for tuple structs.
-impl<'a, W> ser::SerializeTupleStruct for &'a mut Serializer<W>
+impl<'a, W> ser::SerializeTupleStruct for Compound<'a, W>
 where
     W: io::Write,
 {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T>(&mut self, value: &T) -> Result<()>
+    #[inline]
+    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize,
+        T: Serialize,
     {
-        // if !self.output.ends_with('[') {
-        //     self.output += ",";
-        // }
-        value.serialize(&mut **self)
+        ser::SerializeSeq::serialize_element(self, value)
     }
 
+    #[inline]
     fn end(self) -> Result<()> {
-        // self.output += "]";
-        Ok(())
+        ser::SerializeSeq::end(self)
     }
 }
 
-// Tuple variants are a little different. Refer back to the
-// `serialize_tuple_variant` method above:
-//
-//    self.output += "{";
-//    variant.serialize(&mut *self)?;
-//    self.output += ":[";
-//
-// So the `end` method in this impl is responsible for closing both the `]` and
-// the `}`.
-impl<'a, W> ser::SerializeTupleVariant for &'a mut Serializer<W>
+impl<'a, W> ser::SerializeTupleVariant for Compound<'a, W>
 where
     W: io::Write,
 {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T>(&mut self, value: &T) -> Result<()>
+    #[inline]
+    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize,
+        T: Serialize,
     {
-        // if !self.output.ends_with('[') {
-        //     self.output += ",";
-        // }
-        value.serialize(&mut **self)
+        ser::SerializeSeq::serialize_element(self, value)
     }
 
+    #[inline]
     fn end(self) -> Result<()> {
-        // self.output += "]}";
-        Ok(())
+        match self {
+            Compound::Map { ser, state } => {
+                match state {
+                    State::Empty => {}
+                    _ => ser.writer.write_all(b"]")?,
+                }
+
+                ser.writer.write_all(b"}")?;
+                Ok(())
+            }
+        }
     }
 }
 
