@@ -1,5 +1,6 @@
 use super::error::{Error, Result};
 use itoa;
+use serde::ser::Impossible;
 use serde::{ser, Serialize};
 use std::{i64, io, num::FpCategory};
 
@@ -60,7 +61,7 @@ where
     type SerializeTupleStruct = Compound<'a, W>;
     type SerializeTupleVariant = Compound<'a, W>;
     type SerializeMap = Compound<'a, W>;
-    type SerializeStruct = Self;
+    type SerializeStruct = Compound<'a, W>;
     type SerializeStructVariant = Self;
 
     fn serialize_bool(self, v: bool) -> Result<()> {
@@ -303,14 +304,8 @@ where
         }
     }
 
-    // Structs look just like maps in JSON. In particular, JSON requires that we
-    // serialize the field names of the struct. Other formats may be able to
-    // omit the field names when serializing structs because the corresponding
-    // Deserialize implementation is required to know what the keys are without
-    // looking at the serialized data.
     fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
-        // self.serialize_map(Some(len))
-        Ok(self)
+        self.serialize_map(Some(len))
     }
 
     // Struct variants are represented in JSON as `{ NAME: { K: V, ... } }`.
@@ -520,30 +515,53 @@ where
     }
 }
 
-// Structs are like maps in which the keys are constrained to be compile-time
-// constant strings.
-impl<'a, W> ser::SerializeStruct for &'a mut Serializer<W>
+impl<'a, W> ser::SerializeStruct for Compound<'a, W>
 where
     W: io::Write,
 {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
+    #[inline]
+    fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize,
+        T: Serialize,
     {
-        // if !self.output.ends_with('{') {
-        //     self.output += ",";
-        // }
-        // key.serialize(&mut **self)?;
-        // self.output += ":";
-        value.serialize(&mut **self)
+        match *self {
+            Compound::Map { .. } => {
+                ser::SerializeMap::serialize_key(self, key)?;
+                ser::SerializeMap::serialize_value(self, value)
+            }
+            #[cfg(feature = "arbitrary_precision")]
+            Compound::Number { ref mut ser, .. } => {
+                if key == ::number::TOKEN {
+                    value.serialize(NumberStrEmitter(&mut *ser))?;
+                    Ok(())
+                } else {
+                    Err(invalid_number())
+                }
+            }
+            #[cfg(feature = "raw_value")]
+            Compound::RawValue { ref mut ser, .. } => {
+                if key == ::raw::TOKEN {
+                    value.serialize(RawValueStrEmitter(&mut *ser))?;
+                    Ok(())
+                } else {
+                    Err(invalid_raw_value())
+                }
+            }
+        }
     }
 
+    #[inline]
     fn end(self) -> Result<()> {
-        // self.output += "}";
-        Ok(())
+        match self {
+            Compound::Map { .. } => ser::SerializeMap::end(self),
+            #[cfg(feature = "arbitrary_precision")]
+            Compound::Number { .. } => Ok(()),
+            #[cfg(feature = "raw_value")]
+            Compound::RawValue { .. } => Ok(()),
+        }
     }
 }
 

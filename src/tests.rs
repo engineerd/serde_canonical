@@ -4,7 +4,7 @@ use serde_derive::*;
 use serde_json::Value;
 use std::{f32, i16, i32, i64, i8, u16, u32, u64, u8};
 
-use std::collections::btree_map::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 fn assert_encode<T>(value: &T, expected: &str)
 where
@@ -191,7 +191,7 @@ fn write_f64() {
 // https://github.com/docker/go/blob/master/canonical/json/encode_test.go#L489-L525
 
 #[test]
-fn write_str() {
+fn write_string() {
     let tests = &[
         ("", "\"\""),
         ("foo", "\"foo\""),
@@ -383,6 +383,30 @@ fn write_object() {
 }
 
 #[test]
+fn write_map() {
+    let mut map: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
+    map.insert("a", BTreeMap::new());
+    map.insert("b", BTreeMap::new());
+    assert_encode_ok(&[(map.clone(), "{\"a\":{},\"b\":{}}")]);
+}
+
+#[test]
+fn order_btree_map() {
+    let mut map: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
+    map.insert("z", BTreeMap::new());
+    map.insert("a", BTreeMap::new());
+    assert_encode_ok(&[(map.clone(), r#"{"a":{},"z":{}}"#)]);
+}
+
+#[test]
+fn order_hash_map() {
+    let mut map: HashMap<&str, HashMap<&str, &str>> = HashMap::new();
+    map.insert("b", HashMap::new());
+    map.insert("a", HashMap::new());
+    assert_encode_ok(&[(map.clone(), r#"{"a":{},"b":{}}"#)]);
+}
+
+#[test]
 fn write_newtype_struct() {
     #[derive(Serialize, PartialEq, Debug)]
     struct Newtype(BTreeMap<String, i32>);
@@ -427,7 +451,24 @@ fn write_struct() {
         seq: vec!["a", "b"],
     };
     let expected = r#"{"int":1,"seq":["a","b"]}"#;
-    assert_encode(&test, expected);
+    assert_encode(&test, expected);    
+}
+
+#[test]
+fn write_struct_ordered() {
+    #[derive(Serialize)]
+    struct Test {
+        b: u32,
+        a: u32,
+    }
+
+    let test = Test {
+        b: 2,
+        a: 1,
+    };
+
+    let expected = r#"{"a":1,"b":2}"#;
+    assert_encode(&test, expected);    
 }
 
 #[test]
