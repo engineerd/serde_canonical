@@ -418,26 +418,6 @@ fn write_newtype_struct() {
     assert_encode_ok(&[(outer, r#"{"outer":{"inner":123}}"#)]);
 }
 
-// TODO - Radu M
-// should the serializer error out on unsorted structs, or should it sort them?
-#[test]
-fn write_unsorted_struct() {
-    #[derive(Serialize, PartialEq, Debug)]
-    struct UnsortedStruct {
-        z: i64,
-        a: i64,
-    };
-
-    #[derive(Serialize, PartialEq, Debug)]
-    enum UnsortedEnum {
-        Boo { z: i64, a: i64 },
-    };
-
-    assert_encode_err(UnsortedStruct { z: 1, a: 2 });
-
-    assert_encode_err(&UnsortedEnum::Boo { z: 1, a: 2 });
-}
-
 #[test]
 fn write_struct() {
     #[derive(Serialize)]
@@ -451,7 +431,7 @@ fn write_struct() {
         seq: vec!["a", "b"],
     };
     let expected = r#"{"int":1,"seq":["a","b"]}"#;
-    assert_encode(&test, expected);    
+    assert_encode(&test, expected);
 }
 
 #[test]
@@ -462,13 +442,10 @@ fn write_struct_ordered() {
         a: u32,
     }
 
-    let test = Test {
-        b: 2,
-        a: 1,
-    };
+    let test = Test { b: 2, a: 1 };
 
     let expected = r#"{"a":1,"b":2}"#;
-    assert_encode(&test, expected);    
+    assert_encode(&test, expected);
 }
 
 #[test]

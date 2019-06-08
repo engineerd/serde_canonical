@@ -53,16 +53,15 @@ where
     W: io::Write,
 {
     type Ok = ();
-
     type Error = Error;
 
-    type SerializeSeq = Compound<'a, W>;
-    type SerializeTuple = Compound<'a, W>;
-    type SerializeTupleStruct = Compound<'a, W>;
-    type SerializeTupleVariant = Compound<'a, W>;
-    type SerializeMap = Compound<'a, W>;
-    type SerializeStruct = Compound<'a, W>;
-    type SerializeStructVariant = Self;
+    type SerializeSeq = OrderedKeyCompound<'a, W>;
+    type SerializeTuple = OrderedKeyCompound<'a, W>;
+    type SerializeTupleStruct = OrderedKeyCompound<'a, W>;
+    type SerializeTupleVariant = OrderedKeyCompound<'a, W>;
+    type SerializeMap = OrderedKeyCompound<'a, W>;
+    type SerializeStruct = OrderedKeyCompound<'a, W>;
+    type SerializeStructVariant = OrderedKeyCompound<'a, W>;
 
     fn serialize_bool(self, v: bool) -> Result<()> {
         let s = if v {
@@ -250,15 +249,17 @@ where
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
         if len == Some(0) {
             self.writer.write_all(b"[]")?;
-            Ok(Compound::Map {
+            Ok(OrderedKeyCompound::Map {
                 ser: self,
                 state: State::Empty,
+                cur_key: None,
             })
         } else {
             self.writer.write_all(b"[")?;
-            Ok(Compound::Map {
+            Ok(OrderedKeyCompound::Map {
                 ser: self,
                 state: State::First,
+                cur_key: None,
             })
         }
     }
@@ -291,15 +292,17 @@ where
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
         if len == Some(0) {
             self.writer.write_all(b"{}")?;
-            Ok(Compound::Map {
+            Ok(OrderedKeyCompound::Map {
                 ser: self,
                 state: State::Empty,
+                cur_key: None,
             })
         } else {
             self.writer.write_all(b"{")?;
-            Ok(Compound::Map {
+            Ok(OrderedKeyCompound::Map {
                 ser: self,
                 state: State::First,
+                cur_key: None,
             })
         }
     }
@@ -315,12 +318,12 @@ where
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-        _len: usize,
+        len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        // self.output += "{";
-        // variant.serialize(&mut *self)?;
-        // self.output += ":{";
-        Ok(self)
+        self.writer.write_all(b"{")?;
+        self.serialize_str(variant)?;
+        self.writer.write_all(b":")?;
+        self.serialize_map(Some(len))
     }
 }
 
@@ -343,7 +346,8 @@ where
     },
 }
 
-impl<'a, W> ser::SerializeSeq for Compound<'a, W>
+
+impl<'a, W> ser::SerializeSeq for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
 {
@@ -355,9 +359,10 @@ where
         T: Serialize,
     {
         match *self {
-            Compound::Map {
+            OrderedKeyCompound::Map {
                 ref mut ser,
                 ref mut state,
+                ref mut cur_key,
             } => {
                 // begin array value
                 // if the value is not thre first, write a ","
@@ -375,7 +380,7 @@ where
 
     fn end(self) -> Result<()> {
         match self {
-            Compound::Map { ser, state } => {
+            OrderedKeyCompound::Map { ser, state, cur_key } => {
                 match state {
                     State::Empty => {}
                     _ => ser.writer.write_all(b"]")?,
@@ -387,7 +392,7 @@ where
     }
 }
 
-impl<'a, W> ser::SerializeTuple for Compound<'a, W>
+impl<'a, W> ser::SerializeTuple for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
 {
@@ -406,7 +411,7 @@ where
     }
 }
 
-impl<'a, W> ser::SerializeTupleStruct for Compound<'a, W>
+impl<'a, W> ser::SerializeTupleStruct for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
 {
@@ -427,7 +432,7 @@ where
     }
 }
 
-impl<'a, W> ser::SerializeTupleVariant for Compound<'a, W>
+impl<'a, W> ser::SerializeTupleVariant for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
 {
@@ -445,7 +450,7 @@ where
     #[inline]
     fn end(self) -> Result<()> {
         match self {
-            Compound::Map { ser, state } => {
+            OrderedKeyCompound::Map { ser, state, cur_key } => {
                 match state {
                     State::Empty => {}
                     _ => ser.writer.write_all(b"]")?,
@@ -458,7 +463,19 @@ where
     }
 }
 
-impl<'a, W> ser::SerializeMap for Compound<'a, W>
+#[doc(hidden)]
+pub enum OrderedKeyCompound<'a, W: 'a>
+where
+    W: io::Write,
+{
+    Map {
+        ser: &'a mut Serializer<W>,
+        cur_key: Option<String>,
+        state: State,
+    },
+}
+
+impl<'a, W> ser::SerializeMap for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
 {
@@ -470,8 +487,9 @@ where
         T: Serialize,
     {
         match *self {
-            Compound::Map {
+            OrderedKeyCompound::Map {
                 ref mut ser,
+                ref mut cur_key,
                 ref mut state,
             } => {
                 // begin object key
@@ -481,7 +499,13 @@ where
                     _ => (),
                 }
                 *state = State::Rest;
-                key.serialize(&mut **ser)?;
+
+                let mut key_serializer = AscendingKeySerializer {
+                    ser: ser,
+                    cur_key: cur_key.take(),
+                };
+
+                key.serialize(&mut key_serializer)?;
 
                 Ok(())
             }
@@ -493,7 +517,7 @@ where
         T: Serialize,
     {
         match *self {
-            Compound::Map { ref mut ser, .. } => {
+            OrderedKeyCompound::Map { ref mut ser, .. } => {
                 ser.writer.write_all(b":")?;
                 value.serialize(&mut **ser)?;
 
@@ -504,7 +528,11 @@ where
 
     fn end(self) -> Result<()> {
         match self {
-            Compound::Map { ser, state } => {
+            OrderedKeyCompound::Map {
+                ser,
+                cur_key,
+                state,
+            } => {
                 match state {
                     State::Empty => {}
                     _ => ser.writer.write_all(b"}")?,
@@ -515,7 +543,9 @@ where
     }
 }
 
-impl<'a, W> ser::SerializeStruct for Compound<'a, W>
+
+
+impl<'a, W> ser::SerializeStruct for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
 {
@@ -528,12 +558,12 @@ where
         T: Serialize,
     {
         match *self {
-            Compound::Map { .. } => {
+            OrderedKeyCompound::Map { .. } => {
                 ser::SerializeMap::serialize_key(self, key)?;
                 ser::SerializeMap::serialize_value(self, value)
             }
             #[cfg(feature = "arbitrary_precision")]
-            Compound::Number { ref mut ser, .. } => {
+            OrderedKeyCompound::Number { ref mut ser, .. } => {
                 if key == ::number::TOKEN {
                     value.serialize(NumberStrEmitter(&mut *ser))?;
                     Ok(())
@@ -542,7 +572,7 @@ where
                 }
             }
             #[cfg(feature = "raw_value")]
-            Compound::RawValue { ref mut ser, .. } => {
+            OrderedKeyCompound::RawValue { ref mut ser, .. } => {
                 if key == ::raw::TOKEN {
                     value.serialize(RawValueStrEmitter(&mut *ser))?;
                     Ok(())
@@ -556,18 +586,17 @@ where
     #[inline]
     fn end(self) -> Result<()> {
         match self {
-            Compound::Map { .. } => ser::SerializeMap::end(self),
+            OrderedKeyCompound::Map { .. } => ser::SerializeMap::end(self),
             #[cfg(feature = "arbitrary_precision")]
-            Compound::Number { .. } => Ok(()),
+            OrderedKeyCompound::Number { .. } => Ok(()),
             #[cfg(feature = "raw_value")]
-            Compound::RawValue { .. } => Ok(()),
+            OrderedKeyCompound::RawValue { .. } => Ok(()),
         }
     }
 }
 
-// Similar to `SerializeTupleVariant`, here the `end` method is responsible for
-// closing both of the curly braces opened by `serialize_struct_variant`.
-impl<'a, W> ser::SerializeStructVariant for &'a mut Serializer<W>
+
+impl<'a, W> ser::SerializeStructVariant for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
 {
@@ -578,17 +607,27 @@ where
     where
         T: ?Sized + Serialize,
     {
-        // if !self.output.ends_with('{') {
-        //     self.output += ",";
-        // }
-        // key.serialize(&mut **self)?;
-        // self.output += ":";
-        value.serialize(&mut **self)
+        match self {
+            OrderedKeyCompound::Map { ser, state, cur_key } => ser::SerializeStruct::serialize_field(self, key, value),
+            #[cfg(feature = "arbitrary_precision")]
+            OrderedKeyCompound::Number { .. } => unreachable!(),
+            #[cfg(feature = "raw_value")]
+            OrderedKeyCompound::RawValue { .. } => unreachable!(),
+        }
     }
 
-    fn end(self) -> Result<()> {
-        // self.output += "}}";
-        Ok(())
+        fn end(self) -> Result<()> {
+        match self {
+            OrderedKeyCompound::Map { ser, state, cur_key } => {
+                match state {
+                    State::Empty => {}
+                    _ => ser.writer.write_all(b"}")?,
+                }
+
+                ser.writer.write_all(b"}")?;
+                Ok(())
+            }
+        }
     }
 }
 
@@ -658,3 +697,255 @@ static ESCAPE: [u8; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // F
 ];
+
+
+struct AscendingKeySerializer<'a, W: 'a>
+where
+    W: io::Write,
+{
+    ser: &'a mut Serializer<W>,
+    cur_key: Option<String>,
+}
+
+impl<'a, W> ser::Serializer for &'a mut AscendingKeySerializer<'a, W>
+where
+    W: io::Write,
+{
+    type Ok = ();
+    type Error = Error;
+
+    type SerializeSeq = Impossible<(), Error>;
+    type SerializeTuple = Impossible<(), Error>;
+    type SerializeTupleStruct = Impossible<(), Error>;
+    type SerializeTupleVariant = Impossible<(), Error>;
+    type SerializeMap = Impossible<(), Error>;
+    type SerializeStruct = Impossible<(), Error>;
+    type SerializeStructVariant = Impossible<(), Error>;
+
+    fn serialize_str(self, v: &str) -> Result<()> {
+        match self.cur_key {
+            Some(ref cur_key) if v == cur_key => {
+                Err(Error::Custom(String::from(format!("repeated key: {}", v))))
+            }
+            Some(ref cur_key) if v < cur_key => {
+                Err(Error::Custom(String::from(format!("unordered key: {}", v))))
+            }
+            _ => {
+                self.cur_key = Some(v.to_string());
+                self.ser.serialize_str(v)
+            }
+        }
+    }
+
+    fn serialize_bool(self, v: bool) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_i8(self, v: i8) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_i16(self, v: i16) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_i32(self, v: i32) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_i64(self, v: i64) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_u8(self, v: u8) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_u16(self, v: u16) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_u32(self, v: u32) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_u64(self, v: u64) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_f32(self, v: f32) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_f64(self, v: f64) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_char(self, v: char) -> Result<()> {
+        Err(Error::Custom(String::from(format!(
+            "key must be a string: {}",
+            v
+        ))))
+    }
+
+    fn serialize_bytes(self, v: &[u8]) -> Result<()> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_none(self) -> Result<()> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_some<T>(self, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_unit(self) -> Result<()> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<()> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_unit_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+    ) -> Result<()> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_newtype_variant<T>(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+        value: &T,
+    ) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_tuple_struct(
+        self,
+        _name: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleStruct> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_tuple_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleVariant> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+
+    // Struct variants are represented in JSON as `{ NAME: { K: V, ... } }`.
+    // This is the externally tagged representation.
+    fn serialize_struct_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStructVariant> {
+        Err(Error::Custom(String::from(
+            format!("key must be a string",),
+        )))
+    }
+}
