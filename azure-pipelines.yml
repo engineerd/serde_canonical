@@ -1,0 +1,8 @@
+pool:
+  vmImage: 'Ubuntu 18.04'
+  
+steps:
+- script: |
+    cargo test
+    ./scripts/tests.sh
+  displayName: 'Run tests'
