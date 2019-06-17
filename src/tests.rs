@@ -1,8 +1,7 @@
-use crate::error::Error;
-use crate::ser::to_string;
+use crate::{error::Error, ser::to_string};
 use serde_derive::*;
 use serde_json::Value;
-use std::{f32, i16, i32, i64, i8, u16, u32, u64, u8};
+use std::{i16, i32, i64, i8, u16, u32, u64, u8};
 
 use std::collections::{BTreeMap, HashMap};
 
