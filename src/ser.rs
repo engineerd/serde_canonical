@@ -4,6 +4,35 @@ use serde::ser::Impossible;
 use serde::{ser, Serialize};
 use std::{i64, io, num::FpCategory};
 
+pub fn to_writer<W, T>(writer: W, value: &T) -> Result<()>
+where
+    T: serde::Serialize,
+    T: ?Sized,
+    W: io::Write,
+{
+    let mut ser = Serializer::new(writer);
+    serde_json::to_value(value)?.serialize(&mut ser)?;
+    Ok(())
+}
+
+pub fn to_vec<T>(value: &T) -> Result<Vec<u8>>
+where
+    T: serde::Serialize,
+    T: ?Sized,
+{
+    let mut writer = Vec::with_capacity(128);
+    to_writer(&mut writer, value)?;
+    Ok(writer)
+}
+
+pub fn to_string<T>(value: &T) -> Result<String>
+where
+    T: Serialize,
+    T: ?Sized,
+{
+    Ok(unsafe { String::from_utf8_unchecked(to_vec(value)?) })
+}
+
 pub struct Serializer<W>
 where
     W: io::Write,
@@ -18,34 +47,6 @@ where
     pub fn new(writer: W) -> Self {
         Serializer { writer: writer }
     }
-}
-
-pub fn to_writer<W, T: ?Sized>(writer: W, value: &T) -> Result<()>
-where
-    W: io::Write,
-    T: Serialize,
-{
-    let mut ser = Serializer::new(writer);
-    value.serialize(&mut ser)?;
-    Ok(())
-}
-
-pub fn to_vec<T: ?Sized>(value: &T) -> Result<Vec<u8>>
-where
-    T: Serialize,
-{
-    let mut writer = Vec::with_capacity(128);
-    to_writer(&mut writer, value)?;
-    Ok(writer)
-}
-
-pub fn to_string<T: ?Sized>(value: &T) -> Result<String>
-where
-    T: Serialize,
-{
-    let vec = to_vec(value)?;
-    let string = unsafe { String::from_utf8_unchecked(vec) };
-    Ok(string)
 }
 
 impl<'a, W> ser::Serializer for &'a mut Serializer<W>
@@ -362,7 +363,7 @@ where
             OrderedKeyCompound::Map {
                 ref mut ser,
                 ref mut state,
-                ref mut cur_key,
+                ..
             } => {
                 // begin array value
                 // if the value is not thre first, write a ","
@@ -380,7 +381,7 @@ where
 
     fn end(self) -> Result<()> {
         match self {
-            OrderedKeyCompound::Map { ser, state, cur_key } => {
+            OrderedKeyCompound::Map { ser, state, .. } => {
                 match state {
                     State::Empty => {}
                     _ => ser.writer.write_all(b"]")?,
@@ -418,7 +419,6 @@ where
     type Ok = ();
     type Error = Error;
 
-    #[inline]
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
         T: Serialize,
@@ -426,7 +426,6 @@ where
         ser::SerializeSeq::serialize_element(self, value)
     }
 
-    #[inline]
     fn end(self) -> Result<()> {
         ser::SerializeSeq::end(self)
     }
@@ -439,7 +438,6 @@ where
     type Ok = ();
     type Error = Error;
 
-    #[inline]
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
         T: Serialize,
@@ -447,10 +445,9 @@ where
         ser::SerializeSeq::serialize_element(self, value)
     }
 
-    #[inline]
     fn end(self) -> Result<()> {
         match self {
-            OrderedKeyCompound::Map { ser, state, cur_key } => {
+            OrderedKeyCompound::Map { ser, state, .. } => {
                 match state {
                     State::Empty => {}
                     _ => ser.writer.write_all(b"]")?,
@@ -528,11 +525,7 @@ where
 
     fn end(self) -> Result<()> {
         match self {
-            OrderedKeyCompound::Map {
-                ser,
-                cur_key,
-                state,
-            } => {
+            OrderedKeyCompound::Map { ser, state, .. } => {
                 match state {
                     State::Empty => {}
                     _ => ser.writer.write_all(b"}")?,
@@ -544,7 +537,6 @@ where
 }
 
 
-
 impl<'a, W> ser::SerializeStruct for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
@@ -552,7 +544,6 @@ where
     type Ok = ();
     type Error = Error;
 
-    #[inline]
     fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<()>
     where
         T: Serialize,
@@ -562,35 +553,13 @@ where
                 ser::SerializeMap::serialize_key(self, key)?;
                 ser::SerializeMap::serialize_value(self, value)
             }
-            #[cfg(feature = "arbitrary_precision")]
-            OrderedKeyCompound::Number { ref mut ser, .. } => {
-                if key == ::number::TOKEN {
-                    value.serialize(NumberStrEmitter(&mut *ser))?;
-                    Ok(())
-                } else {
-                    Err(invalid_number())
-                }
-            }
-            #[cfg(feature = "raw_value")]
-            OrderedKeyCompound::RawValue { ref mut ser, .. } => {
-                if key == ::raw::TOKEN {
-                    value.serialize(RawValueStrEmitter(&mut *ser))?;
-                    Ok(())
-                } else {
-                    Err(invalid_raw_value())
-                }
-            }
+
         }
     }
 
-    #[inline]
     fn end(self) -> Result<()> {
         match self {
             OrderedKeyCompound::Map { .. } => ser::SerializeMap::end(self),
-            #[cfg(feature = "arbitrary_precision")]
-            OrderedKeyCompound::Number { .. } => Ok(()),
-            #[cfg(feature = "raw_value")]
-            OrderedKeyCompound::RawValue { .. } => Ok(()),
         }
     }
 }
@@ -608,17 +577,15 @@ where
         T: ?Sized + Serialize,
     {
         match self {
-            OrderedKeyCompound::Map { ser, state, cur_key } => ser::SerializeStruct::serialize_field(self, key, value),
-            #[cfg(feature = "arbitrary_precision")]
-            OrderedKeyCompound::Number { .. } => unreachable!(),
-            #[cfg(feature = "raw_value")]
-            OrderedKeyCompound::RawValue { .. } => unreachable!(),
+            OrderedKeyCompound::Map { .. } => {
+                ser::SerializeStruct::serialize_field(self, key, value)
+            }
         }
     }
 
-        fn end(self) -> Result<()> {
+    fn end(self) -> Result<()> {
         match self {
-            OrderedKeyCompound::Map { ser, state, cur_key } => {
+            OrderedKeyCompound::Map { ser, state, .. } => {
                 match state {
                     State::Empty => {}
                     _ => ser.writer.write_all(b"}")?,
@@ -699,7 +666,7 @@ static ESCAPE: [u8; 256] = [
 ];
 
 
-struct AscendingKeySerializer<'a, W: 'a>
+struct AscendingKeySerializer<'a, W>
 where
     W: io::Write,
 {
@@ -821,7 +788,7 @@ where
         ))))
     }
 
-    fn serialize_bytes(self, v: &[u8]) -> Result<()> {
+    fn serialize_bytes(self, _v: &[u8]) -> Result<()> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
         )))
@@ -833,7 +800,7 @@ where
         )))
     }
 
-    fn serialize_some<T>(self, value: &T) -> Result<()>
+    fn serialize_some<T>(self, _value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
     {
@@ -858,14 +825,14 @@ where
         self,
         _name: &'static str,
         _variant_index: u32,
-        variant: &'static str,
+        _variant: &'static str,
     ) -> Result<()> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
         )))
     }
 
-    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<()>
+    fn serialize_newtype_struct<T>(self, _name: &'static str, _value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
     {
@@ -878,8 +845,8 @@ where
         self,
         _name: &'static str,
         _variant_index: u32,
-        variant: &'static str,
-        value: &T,
+        _variant: &'static str,
+        _value: &T,
     ) -> Result<()>
     where
         T: ?Sized + Serialize,
@@ -889,13 +856,13 @@ where
         )))
     }
 
-    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
         )))
     }
 
-    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple> {
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
         )))
@@ -904,7 +871,7 @@ where
     fn serialize_tuple_struct(
         self,
         _name: &'static str,
-        len: usize,
+        _len: usize,
     ) -> Result<Self::SerializeTupleStruct> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
@@ -915,21 +882,21 @@ where
         self,
         _name: &'static str,
         _variant_index: u32,
-        variant: &'static str,
-        len: usize,
+        _variant: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
         )))
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
         )))
     }
 
-    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
+    fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
         Err(Error::Custom(String::from(
             format!("key must be a string",),
         )))
@@ -941,7 +908,7 @@ where
         self,
         _name: &'static str,
         _variant_index: u32,
-        variant: &'static str,
+        _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
         Err(Error::Custom(String::from(
