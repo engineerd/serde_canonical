@@ -11,7 +11,7 @@ where
     W: io::Write,
 {
     let mut ser = Serializer::new(writer);
-    serde_json::to_value(value)?.serialize(&mut ser)?;
+    super::canonical_value::to_value(value)?.serialize(&mut ser)?;
     Ok(())
 }
 
