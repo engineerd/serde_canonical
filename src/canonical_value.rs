@@ -2,13 +2,14 @@ use serde_json::value::Value;
 use std::fmt::{self, Debug};
 use std::{io, str};
 
+
 pub struct CanonicalValue {
-    Value: Value,
+    value: Value,
 }
 
 impl Debug for CanonicalValue {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        match self.Value {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.value {
             Value::Null => formatter.debug_tuple("Null").finish(),
             Value::Bool(v) => formatter.debug_tuple("Bool").field(&v).finish(),
             Value::Number(ref v) => Debug::fmt(v, formatter),
@@ -40,7 +41,7 @@ impl<'a, 'b> io::Write for WriterFormatter<'a, 'b> {
 }
 
 impl fmt::Display for CanonicalValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut wr = WriterFormatter { inner: f };
         super::ser::to_writer(&mut wr, self).map_err(|_| fmt::Error)
     }
@@ -52,7 +53,7 @@ impl serde::Serialize for CanonicalValue {
     where
         S: ::serde::Serializer,
     {
-        match self.Value {
+        match self.value {
             Value::Null => serializer.serialize_unit(),
             Value::Bool(b) => serializer.serialize_bool(b),
             Value::Number(ref n) => n.serialize(serializer),
@@ -70,3 +71,4 @@ impl serde::Serialize for CanonicalValue {
         }
     }
 }
+
