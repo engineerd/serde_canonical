@@ -32,6 +32,18 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Error {
+        use serde_json::error::Category;
+        match err.classify() {
+            Category::Io => Error::Io(err.into()),
+            Category::Syntax | Category::Data | Category::Eof => {
+                Error::Custom(String::from(format!("{}", err)))
+            }
+        }
+    }
+}
+
 impl serde::ser::Error for Error {
     fn custom<T: fmt::Display>(msg: T) -> Self {
         Error::Custom(msg.to_string())
