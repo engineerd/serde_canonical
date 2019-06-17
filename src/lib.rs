@@ -3,6 +3,7 @@
 
 pub mod error;
 pub mod ser;
+pub mod canonical_value;
 
 #[cfg(test)]
 mod tests;
