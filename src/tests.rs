@@ -1,53 +1,9 @@
-use crate::error::Error;
-use crate::ser::to_string;
+use crate::{error::Error, ser::to_string};
 use serde_derive::*;
-use serde_json::*;
-use std::{i64, u64};
+use serde_json::Value;
+use std::{i16, i32, i64, i8, u16, u32, u64, u8};
 
-use std::collections::btree_map::BTreeMap;
-
-#[test]
-fn test_struct() {
-    #[derive(Serialize)]
-    struct Test {
-        int: u32,
-        seq: Vec<&'static str>,
-    }
-
-    let test = Test {
-        int: 1,
-        seq: vec!["a", "b"],
-    };
-    let expected = r#"{"int":1,"seq":["a","b"]}"#;
-    assert_encode(&test, expected);
-}
-
-#[test]
-fn test_enum() {
-    #[derive(Serialize)]
-    enum E {
-        Unit,
-        Newtype(u32),
-        Tuple(u32, u32),
-        Struct { a: u32 },
-    }
-
-    let u = E::Unit;
-    let expected = r#""Unit""#;
-    assert_eq!(to_string(&u).unwrap(), expected);
-
-    let n = E::Newtype(1);
-    let expected = r#"{"Newtype":1}"#;
-    assert_encode(&n, expected);
-
-    let t = E::Tuple(1, 2);
-    let expected = r#"{"Tuple":[1,2]}"#;
-    assert_encode(&t, expected);
-
-    let s = E::Struct { a: 1 };
-    let expected = r#"{"Struct":{"a":1}}"#;
-    assert_encode(&s, expected);
-}
+use std::collections::{BTreeMap, HashMap};
 
 fn assert_encode<T>(value: &T, expected: &str)
 where
@@ -70,7 +26,7 @@ where
     T: serde::ser::Serialize,
 {
     match to_string(&val).unwrap_err() {
-        Error::Syntax(_, _, _) => (),
+        Error::Custom(_) => (),
         _ => panic!("this should error out"),
     }
 }
@@ -82,8 +38,40 @@ fn write_null() {
 }
 
 #[test]
-fn write_u64() {
-    let tests = &[(3u64, "3"), (u64::MAX, &u64::MAX.to_string())];
+fn write_bool() {
+    let tests = &[(true, "true"), (false, "false")];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn write_i8() {
+    let tests = &[
+        (3i8, "3"),
+        (i8::MIN, &i8::MIN.to_string()),
+        (i8::MAX, &i8::MAX.to_string()),
+    ];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn write_i16() {
+    let tests = &[
+        (3i16, "3"),
+        (i16::MIN, &i16::MIN.to_string()),
+        (i16::MAX, &i16::MAX.to_string()),
+    ];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn write_i32() {
+    let tests = &[
+        (3i32, "3"),
+        (46i32, "46"),
+        (-1933i32, "-1933"),
+        (i32::MIN, &i32::MIN.to_string()),
+        (i32::MAX, &i32::MAX.to_string()),
+    ];
     assert_encode_ok(tests);
 }
 
@@ -94,12 +82,59 @@ fn write_i64() {
         (-2i64, "-2"),
         (-1234i64, "-1234"),
         (i64::MIN, &i64::MIN.to_string()),
+        (i64::MAX, &i64::MAX.to_string()),
     ];
     assert_encode_ok(tests);
 }
 
-// TODO - Radu M
-// error out on nonfinit float values
+#[test]
+fn write_u8() {
+    let tests = &[
+        (3u8, "3"),
+        (46u8, "46"),
+        (254u8, "254"),
+        (u8::MIN, &u8::MIN.to_string()),
+        (u8::MAX, &u8::MAX.to_string()),
+    ];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn write_u16() {
+    let tests = &[
+        (3u16, "3"),
+        (46u16, "46"),
+        (254u16, "254"),
+        (u16::MIN, &u16::MIN.to_string()),
+        (u16::MAX, &u16::MAX.to_string()),
+    ];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn write_u32() {
+    let tests = &[
+        (3u32, "3"),
+        (46u32, "46"),
+        (254u32, "254"),
+        (u32::MIN, &u32::MIN.to_string()),
+        (u32::MAX, &u32::MAX.to_string()),
+    ];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn write_u64() {
+    let tests = &[
+        (3u64, "3"),
+        (46u64, "46"),
+        (254u64, "254"),
+        (u64::MIN, &u64::MIN.to_string()),
+        (u64::MAX, &u64::MAX.to_string()),
+    ];
+    assert_encode_ok(tests);
+}
+
 #[test]
 fn encode_nonfinite_float_yields_err() {
     let v = std::f64::NAN;
@@ -115,10 +150,47 @@ fn encode_nonfinite_float_yields_err() {
     assert_encode_err(&v);
 }
 
-// TODO - Radu M
-// correctly escape strings
 #[test]
-fn write_str() {
+fn encode_f32_ne_int() {
+    let v = 3.1f32;
+    assert_encode_err(&v);
+
+    let v = -1.3f32;
+    assert_encode_err(&v);
+}
+
+#[test]
+fn write_f32() {
+    let tests = &[(3.0f32, "3"), (46.0f32, "46"), (-254.0f32, "-254")];
+    assert_encode_ok(tests);
+}
+
+#[test]
+fn encode_f64_ne_int() {
+    let v = 3.1f64;
+    assert_encode_err(&v);
+
+    let v = -1.3f64;
+    assert_encode_err(&v);
+}
+
+#[test]
+fn write_f64() {
+    let tests = &[
+        (3.0f64, "3"),
+        (46.0f64, "46"),
+        (-254.0f64, "-254"),
+        (1234567f64, "1234567"),
+    ];
+    assert_encode_ok(tests);
+}
+
+// TODO - Radu M
+// port string escape tests from the Go implementation
+// https://github.com/docker/go/blob/master/canonical/json/encode_test.go#L489-L525
+
+#[test]
+fn write_string() {
     let tests = &[
         ("", "\"\""),
         ("foo", "\"foo\""),
@@ -133,9 +205,12 @@ fn write_str() {
 }
 
 #[test]
-fn write_bool() {
-    let tests = &[(true, "true"), (false, "false")];
-    assert_encode_ok(tests);
+fn write_bytes() {
+    let buf: Vec<i32> = vec![];
+    assert_encode(&buf, "[]");
+
+    let buf = vec![1, 2, 3];
+    assert_encode(&buf, "[1,2,3]");
 }
 
 #[test]
@@ -307,6 +382,30 @@ fn write_object() {
 }
 
 #[test]
+fn write_map() {
+    let mut map: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
+    map.insert("a", BTreeMap::new());
+    map.insert("b", BTreeMap::new());
+    assert_encode_ok(&[(map.clone(), "{\"a\":{},\"b\":{}}")]);
+}
+
+#[test]
+fn order_btree_map() {
+    let mut map: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
+    map.insert("z", BTreeMap::new());
+    map.insert("a", BTreeMap::new());
+    assert_encode_ok(&[(map.clone(), r#"{"a":{},"z":{}}"#)]);
+}
+
+#[test]
+fn order_hash_map() {
+    let mut map: HashMap<&str, HashMap<&str, &str>> = HashMap::new();
+    map.insert("b", HashMap::new());
+    map.insert("a", HashMap::new());
+    assert_encode_ok(&[(map.clone(), r#"{"a":{},"b":{}}"#)]);
+}
+
+#[test]
 fn write_newtype_struct() {
     #[derive(Serialize, PartialEq, Debug)]
     struct Newtype(BTreeMap<String, i32>);
@@ -318,22 +417,59 @@ fn write_newtype_struct() {
     assert_encode_ok(&[(outer, r#"{"outer":{"inner":123}}"#)]);
 }
 
-// TODO - Radu M
-// should the serializer error out on unsorted structs, or should it sort them?
 #[test]
-fn write_unsorted_struct() {
-    #[derive(Serialize, PartialEq, Debug)]
-    struct UnsortedStruct {
-        z: i64,
-        a: i64,
+fn write_struct() {
+    #[derive(Serialize)]
+    struct Test {
+        int: u32,
+        seq: Vec<&'static str>,
+    }
+
+    let test = Test {
+        int: 1,
+        seq: vec!["a", "b"],
     };
+    let expected = r#"{"int":1,"seq":["a","b"]}"#;
+    assert_encode(&test, expected);
+}
 
-    #[derive(Serialize, PartialEq, Debug)]
-    enum UnsortedEnum {
-        Boo { z: i64, a: i64 },
-    };
+#[test]
+fn write_struct_ordered() {
+    #[derive(Serialize)]
+    struct Test {
+        b: u32,
+        a: u32,
+    }
 
-    assert_encode_err(UnsortedStruct { z: 1, a: 2 });
+    let test = Test { b: 2, a: 1 };
 
-    assert_encode_err(&UnsortedEnum::Boo { z: 1, a: 2 });
+    let expected = r#"{"a":1,"b":2}"#;
+    assert_encode(&test, expected);
+}
+
+#[test]
+fn write_enum_derive() {
+    #[derive(Serialize)]
+    enum E {
+        Unit,
+        Newtype(u32),
+        Tuple(u32, u32),
+        Struct { a: u32 },
+    }
+
+    let u = E::Unit;
+    let expected = r#""Unit""#;
+    assert_eq!(to_string(&u).unwrap(), expected);
+
+    let n = E::Newtype(1);
+    let expected = r#"{"Newtype":1}"#;
+    assert_encode(&n, expected);
+
+    let t = E::Tuple(1, 2);
+    let expected = r#"{"Tuple":[1,2]}"#;
+    assert_encode(&t, expected);
+
+    let s = E::Struct { a: 1 };
+    let expected = r#"{"Struct":{"a":1}}"#;
+    assert_encode(&s, expected);
 }
