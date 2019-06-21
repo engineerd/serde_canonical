@@ -14,7 +14,6 @@ fn main() {
         serde_json::from_reader(input).expect("cannot deserialize input file");
     match args.len() {
         2 => {
-
             println!(
                 "{}",
                 serde_canonical::ser::to_string(&res).expect("cannot write canonical JSON")
