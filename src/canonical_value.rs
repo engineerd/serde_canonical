@@ -32,7 +32,6 @@ impl serde::Serialize for CanonicalValue {
     }
 }
 
-
 pub fn to_value<T>(value: T) -> Result<CanonicalValue, Error>
 where
     T: Serialize,

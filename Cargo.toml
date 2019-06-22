@@ -3,6 +3,11 @@ name = "serde_canonical"
 version = "0.1.0"
 authors = ["Radu M <root@radu.sh>"]
 edition = "2018"
+exclude = [
+    ".vscode/*",
+    "scripts/*",
+    "testdata/*",
+]
 
 [dependencies]
 serde = "1.0.0"

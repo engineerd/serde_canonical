@@ -347,7 +347,6 @@ where
     },
 }
 
-
 impl<'a, W> ser::SerializeSeq for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
@@ -536,7 +535,6 @@ where
     }
 }
 
-
 impl<'a, W> ser::SerializeStruct for OrderedKeyCompound<'a, W>
 where
     W: io::Write,
@@ -553,7 +551,6 @@ where
                 ser::SerializeMap::serialize_key(self, key)?;
                 ser::SerializeMap::serialize_value(self, value)
             }
-
         }
     }
 
@@ -563,7 +560,6 @@ where
         }
     }
 }
-
 
 impl<'a, W> ser::SerializeStructVariant for OrderedKeyCompound<'a, W>
 where
@@ -664,7 +660,6 @@ static ESCAPE: [u8; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // F
 ];
-
 
 struct AscendingKeySerializer<'a, W>
 where
