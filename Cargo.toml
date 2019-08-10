@@ -8,6 +8,8 @@ exclude = [
     "scripts/*",
     "testdata/*",
 ]
+description = "Canonical JSON serializer for Serde"
+license = "MIT"
 
 [dependencies]
 serde = "1.0.0"

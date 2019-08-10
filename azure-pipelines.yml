@@ -16,7 +16,7 @@ steps:
     shopt -s extglob
     echo '##vso[task.prependpath]$(GOBIN)'
     echo '##vso[task.prependpath]$(GOROOT)/bin'
-    go get github.com/technosophos/canonjson
+    go get github.com/radu-matei/canonjson
   displayName: 'Set up the Go workspace'
 - script: |
     cargo test
